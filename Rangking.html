@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Rekap & Perangkingan Siswa - SAW</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f8f8f8; }
+    .container { display: flex; }
+    .sidebar { width: 220px; background: #2f3542; color: white; min-height: 100vh; padding: 20px 0; }
+    .sidebar h2 { text-align: center; margin-bottom: 20px; }
+    .menu { list-style: none; padding: 0; }
+    .menu li { padding: 12px 20px; cursor: pointer; }
+    .menu li:hover, .menu li.active { background: #57606f; }
+    .content { flex: 1; padding: 20px; }
+    .card { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    .card h3 { margin-top: 0; }
+    select, input[type="number"] { padding: 6px 10px; margin: 10px 5px 10px 0; border: 1px solid #ccc; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    table, th, td { border: 1px solid #aaa; }
+    th, td { padding: 8px; text-align: center; }
+    input[type=number] { width: 60px; text-align: center;}
+    button { width: 100%; background: #2f3542; color: white; padding: 12px; margin-top: 15px; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; }
+    button:hover { background: #666; }
+    .formula { background: #f4f4f4; padding: 10px; border-left: 4px solid #2f3542; font-family: "Courier New"; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <h2>Nilai Siswa Kita</h2>
+      <ul class="menu">
+        <li onclick="window.location.href='Ramal.html'">📈 Peramalan</li>
+        <li class="active">🏆 Perangkingan</li>
+        <li>🧠 Sistem Pakar</li>
+      </ul>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <h1>Rekap & Penentuan Siswa Terbaik</h1>
+
+      <!-- Upload -->
+      <div class="card">
+        <h3>Unggah Data</h3>
+        <p>Upload file Excel berisi kolom: <b>Nama</b>, <b>Matematika</b>, <b>IPA</b>, <b>IPS</b>, <b>Bahasa</b>, <b>Kehadiran_pct</b>, <b>Prestasi</b>.</p>
+        <input type="file" id="fileInput" />
+      </div>
+
+      <!-- Rekap -->
+      <div class="card" id="hasilCard" style="display:none;">
+        <h3>Rekap Rata-rata Nilai Siswa</h3>
+        <table id="rekapTable">
+          <thead>
+            <tr>
+              <th>No</th><th>Nama Siswa</th><th>Matematika</th><th>IPA</th><th>IPS</th>
+              <th>Bahasa</th><th>Kehadiran (%)</th><th>Prestasi</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <!-- Kriteria -->
+      <div class="card" id="kriteriaCard" style="display:none;">
+        <h3>Masukkan Bobot Kriteria</h3>
+        <table>
+          <thead><tr><th>Kriteria</th><th>Bobot (%)</th></tr></thead>
+          <tbody>
+            <tr><td>Matematika</td><td><input type="number" id="bobotMatematika"></td></tr>
+            <tr><td>IPA</td><td><input type="number" id="bobotIpa"></td></tr>
+            <tr><td>IPS</td><td><input type="number" id="bobotIps"></td></tr>
+            <tr><td>Bahasa</td><td><input type="number" id="bobotBahasa"></td></tr>
+            <tr><td>Kehadiran</td><td><input type="number" id="bobotKehadiran"></td></tr>
+            <tr><td>Prestasi</td><td><input type="number" id="bobotPrestasi"></td></tr>
+          </tbody>
+        </table>
+        <button onclick="hitungRanking()">Hitung Ranking</button>
+      </div>
+
+      <!-- Normalisasi -->
+      <div class="card" id="normalisasiCard" style="display:none;">
+        <h3>Hasil Normalisasi (r<sub>ij</sub>)</h3>
+        <div class="formula">
+          <b>Untuk kriteria benefit:</b> r<sub>ij</sub> = x<sub>ij</sub> / max(x<sub>j</sub>) <br>
+          <b>Untuk kriteria cost:</b> r<sub>ij</sub> = min(x<sub>j</sub>) / x<sub>ij</sub>
+        </div>
+        <table id="normalisasiTable">
+          <thead>
+            <tr>
+              <th>Nama Siswa</th><th>Matematika</th><th>IPA</th><th>IPS</th>
+              <th>Bahasa</th><th>Kehadiran</th><th>Prestasi</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <!-- Preferensi -->
+      <div class="card" id="preferensiCard" style="display:none;">
+        <h3>Hasil Perhitungan Nilai Akhir (V<sub>i</sub>)</h3>
+        <div class="formula">
+          V<sub>i</sub> = Σ (w<sub>j</sub> × r<sub>ij</sub>)
+        </div>
+        <table id="rankingTable">
+          <thead>
+            <tr><th>Peringkat</th><th>Nama</th><th>Nilai Preferensi</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let rekapData = [];
+
+    document.getElementById("fileInput").addEventListener("change", handleFile);
+
+    function handleFile(e) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rawData = XLSX.utils.sheet_to_json(sheet);
+
+        if (rawData.length === 0) return alert("File kosong!");
+
+        const siswaMap = {};
+        rawData.forEach(row => {
+          const nama = row["Nama"];
+          if (!nama) return;
+          if (!siswaMap[nama]) siswaMap[nama] = { matematika: [], ipa: [], ips: [], bahasa: [], kehadiran: [], prestasi: new Set() };
+          if (row["Matematika"]) siswaMap[nama].matematika.push(parseFloat(row["Matematika"]));
+          if (row["IPA"]) siswaMap[nama].ipa.push(parseFloat(row["IPA"]));
+          if (row["IPS"]) siswaMap[nama].ips.push(parseFloat(row["IPS"]));
+          if (row["Bahasa"]) siswaMap[nama].bahasa.push(parseFloat(row["Bahasa"]));
+          if (row["Kehadiran_pct"]) siswaMap[nama].kehadiran.push(parseFloat(row["Kehadiran_pct"]));
+          if (row["Prestasi"]) {
+            row["Prestasi"].toString().split(",").forEach(p => {
+              if (p.trim() && p.trim() !== "-") siswaMap[nama].prestasi.add(p.trim());
+            });
+          }
+        });
+
+        const tbody = document.querySelector("#rekapTable tbody");
+        tbody.innerHTML = "";
+        let i = 1;
+        rekapData = [];
+
+        const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+        for (const nama in siswaMap) {
+          const s = siswaMap[nama];
+          const data = {
+            nama,
+            matematika: avg(s.matematika),
+            ipa: avg(s.ipa),
+            ips: avg(s.ips),
+            bahasa: avg(s.bahasa),
+            kehadiran: avg(s.kehadiran),
+            prestasi: s.prestasi.size
+          };
+          rekapData.push(data);
+          tbody.innerHTML += `<tr><td>${i++}</td><td>${nama}</td>
+            <td>${data.matematika.toFixed(2)}</td><td>${data.ipa.toFixed(2)}</td><td>${data.ips.toFixed(2)}</td>
+            <td>${data.bahasa.toFixed(2)}</td><td>${data.kehadiran.toFixed(2)}</td><td>${data.prestasi}</td></tr>`;
+        }
+
+        document.getElementById("hasilCard").style.display = "block";
+        document.getElementById("kriteriaCard").style.display = "block";
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function hitungRanking() {
+      const bobot = {
+        matematika: parseFloat(document.getElementById("bobotMatematika").value) || 0,
+        ipa: parseFloat(document.getElementById("bobotIpa").value) || 0,
+        ips: parseFloat(document.getElementById("bobotIps").value) || 0,
+        bahasa: parseFloat(document.getElementById("bobotBahasa").value) || 0,
+        kehadiran: parseFloat(document.getElementById("bobotKehadiran").value) || 0,
+        prestasi: parseFloat(document.getElementById("bobotPrestasi").value) || 0
+      };
+      const total = Object.values(bobot).reduce((a, b) => a + b, 0);
+      for (let k in bobot) bobot[k] = bobot[k] / total;
+
+      const max = {
+        matematika: Math.max(...rekapData.map(d => d.matematika)),
+        ipa: Math.max(...rekapData.map(d => d.ipa)),
+        ips: Math.max(...rekapData.map(d => d.ips)),
+        bahasa: Math.max(...rekapData.map(d => d.bahasa)),
+        kehadiran: Math.max(...rekapData.map(d => d.kehadiran)),
+        prestasi: Math.max(...rekapData.map(d => d.prestasi))
+      };
+
+      const hasilNormalisasi = rekapData.map(d => ({
+        nama: d.nama,
+        matematika: d.matematika / max.matematika,
+        ipa: d.ipa / max.ipa,
+        ips: d.ips / max.ips,
+        bahasa: d.bahasa / max.bahasa,
+        kehadiran: d.kehadiran / max.kehadiran,
+        prestasi: d.prestasi / (max.prestasi || 1)
+      }));
+
+      const normBody = document.querySelector("#normalisasiTable tbody");
+      normBody.innerHTML = "";
+      hasilNormalisasi.forEach(r => {
+        normBody.innerHTML += `<tr><td>${r.nama}</td>
+        <td>${r.matematika.toFixed(4)}</td><td>${r.ipa.toFixed(4)}</td><td>${r.ips.toFixed(4)}</td>
+        <td>${r.bahasa.toFixed(4)}</td><td>${r.kehadiran.toFixed(4)}</td><td>${r.prestasi.toFixed(4)}</td></tr>`;
+      });
+      document.getElementById("normalisasiCard").style.display = "block";
+
+      const hasilPreferensi = hasilNormalisasi.map(r => ({
+        nama: r.nama,
+        skor: (
+          bobot.matematika * r.matematika +
+          bobot.ipa * r.ipa +
+          bobot.ips * r.ips +
+          bobot.bahasa * r.bahasa +
+          bobot.kehadiran * r.kehadiran +
+          bobot.prestasi * r.prestasi
+        )
+      }));
+      hasilPreferensi.sort((a, b) => b.skor - a.skor);
+
+      const prefBody = document.querySelector("#rankingTable tbody");
+      prefBody.innerHTML = "";
+      hasilPreferensi.forEach((r, i) => {
+        prefBody.innerHTML += `<tr><td>${i + 1}</td><td>${r.nama}</td><td>${r.skor.toFixed(4)}</td></tr>`;
+      });
+      document.getElementById("preferensiCard").style.display = "block";
+    }
+  </script>
+</body>
+</html>
